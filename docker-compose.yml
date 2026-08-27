@@ -1,0 +1,54 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  inventory-service:
+    build: ./inventory-service
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379
+      INVENTORY_PORT: 4001
+      TICKET_COUNT: 500
+      STREAM_KEY: ticket_reservations
+      ADMIN_RESET_SECRET: ${ADMIN_RESET_SECRET:-change-me-in-production}
+    ports:
+      - "4001:4001"
+
+  order-service:
+    build: ./order-service
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379
+      ORDER_PORT: 4002
+      STREAM_KEY: ticket_reservations
+      CONSUMER_GROUP: order-service-group
+      CONSUMER_NAME: order-service-1
+      DATABASE_URL: /app/data/orders.db
+    ports:
+      - "4002:4002"
+    volumes:
+      - order-data:/app/data
+
+  portal:
+    build: ./portal
+    depends_on:
+      - inventory-service
+      - order-service
+    environment:
+      PORTAL_PORT: 4000
+    ports:
+      - "4000:4000"
+
+volumes:
+  order-data:
