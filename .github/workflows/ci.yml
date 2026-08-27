@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  concurrency-test:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli PING"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install inventory-service deps
+        working-directory: inventory-service
+        run: npm install
+
+      - name: Direct Lua reservation test (no HTTP)
+        working-directory: inventory-service
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: node test/reservation.lua.test.js
+
+      - name: Start inventory-service
+        working-directory: inventory-service
+        env:
+          REDIS_URL: redis://localhost:6379
+          INVENTORY_PORT: 4001
+          TICKET_COUNT: 200
+          ADMIN_RESET_SECRET: ci-test-secret
+        run: |
+          nohup node src/server.js > /tmp/inventory.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:4001/health && break
+            sleep 0.5
+          done
+          curl -sf http://localhost:4001/health || (cat /tmp/inventory.log && exit 1)
+
+      - name: Full-stack HTTP concurrency test (fails build on oversell)
+        working-directory: inventory-service
+        env:
+          INVENTORY_URL: http://localhost:4001
+          ADMIN_RESET_SECRET: ci-test-secret
+          TEST_INITIAL_STOCK: 200
+          TEST_CONCURRENT_REQUESTS: 500
+        run: npm run test:concurrency
+
+      - name: Install order-service deps
+        working-directory: order-service
+        run: npm install
+
+      - name: Order-service starts and drains the stream
+        working-directory: order-service
+        env:
+          REDIS_URL: redis://localhost:6379
+          ORDER_PORT: 4002
+          DATABASE_URL: ./data/orders.db
+        run: |
+          nohup node --experimental-sqlite src/server.js > /tmp/order.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:4002/health && break
+            sleep 0.5
+          done
+          curl -sf http://localhost:4002/health || (cat /tmp/order.log && exit 1)
+          sleep 2
+          count=$(curl -sf http://localhost:4002/orders/count | node -pe 'JSON.parse(require("fs").readFileSync(0)).count')
+          echo "orders persisted: $count"
+          if [ "$count" -lt 200 ]; then
+            echo "expected at least 200 persisted orders, got $count"
+            cat /tmp/order.log
+            exit 1
+          fi
