@@ -37,6 +37,8 @@ PASS: no oversell over HTTP, no negative counter, exact accounting.
 
 200 succeeded, 300 got clean `409`s, and the Redis counter landed on exactly zero. Both tests run in CI (`.github/workflows/ci.yml`) against a real Redis service container, and the build fails if oversell ever happens.
 
+**A live production run surfaced a real, separate lesson.** Firing 500 truly concurrent requests from a browser at the deployed Render free-tier instance produced 0 visible successes and 500 client-side "no response" errors — the single free container couldn't get HTTP responses back to the browser fast enough under that burst. Checking the source of truth directly told a different story: `orders/count` went up by exactly 500 and `/remaining` landed on exactly 0. Every request had actually been processed correctly server-side — the atomic reservation logic held under real infrastructure stress that the free-tier demo hosting itself couldn't keep up with. The portal originally folded network failures into the "Sold Out" bucket, which misrepresented what happened; it now tracks "No Response" as a distinct outcome from a real `409`, and says explicitly that it isn't proof of a real sold-out. For a live demo on the free tier, keep concurrency around 50–100 — the backend can correctly process far more than that, but the free container can't answer that many callers at once.
+
 ## Architecture
 
 ```
