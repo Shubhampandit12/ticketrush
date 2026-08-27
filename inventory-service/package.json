@@ -1,0 +1,16 @@
+{
+  "name": "inventory-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test:concurrency": "node test/concurrency.test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ioredis": "^5.4.1",
+    "uuid": "^9.0.1"
+  }
+}
