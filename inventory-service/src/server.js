@@ -65,6 +65,18 @@ app.post('/admin/reset', async (req, res) => {
   res.json({ status: 'reset', remaining: count });
 });
 
+// Unauthenticated on purpose, unlike /admin/reset: it can only ever reset
+// to the server's own fixed TICKET_COUNT, never an arbitrary value from the
+// caller, so there's nothing for an anonymous visitor to abuse beyond
+// restocking the demo. The portal calls this on every page load so each
+// visitor sees a fresh stock regardless of what a previous visitor did —
+// intended for sequential demo use (one viewer at a time); a page load
+// from a second viewer while a first is mid-test will rewind their count.
+app.post('/demo/reset', async (req, res) => {
+  await initCounter(redis, COUNTER_KEY, TICKET_COUNT);
+  res.json({ status: 'reset', remaining: TICKET_COUNT });
+});
+
 ensureCounterInitialized()
   .then(() => {
     app.listen(PORT, () => {

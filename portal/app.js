@@ -39,6 +39,21 @@ async function fetchRemaining() {
   }
 }
 
+// Resets stock to the server's fixed default on every page load, so each
+// visitor sees a fresh demo regardless of what a previous visitor did.
+// Runs before the WebSocket connects / the first /remaining fetch, so the
+// very first number anyone sees is already the reset value, not a stale
+// one that then jumps. Intended for one viewer at a time — a page load
+// from a second visitor while a first is mid-test will rewind their count.
+async function resetOnLoad() {
+  try {
+    await fetch(`${INVENTORY_URL}/demo/reset`, { method: 'POST' });
+  } catch (err) {
+    // Free-tier cold start or a transient network blip — not fatal, the
+    // page still works, it just starts from whatever count was already there.
+  }
+}
+
 // A request lands in exactly one bucket: the server said yes (201), the
 // server said no (409, a real sold-out), or we never got a clean answer at
 // all (network error, timeout, non-2xx/409 status). That third bucket is
@@ -81,5 +96,7 @@ async function simulateRush() {
 }
 
 rushBtn.addEventListener('click', simulateRush);
-connectWebSocket();
-fetchRemaining();
+resetOnLoad().then(() => {
+  connectWebSocket();
+  fetchRemaining();
+});
